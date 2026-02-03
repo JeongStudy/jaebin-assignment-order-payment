@@ -23,6 +23,8 @@
 
 요구사항에 없는 세부 정책(예: 결제 실패 후 주문 상태를 어디까지 바꾸는지, 재결제 허용 여부 등)은 설계자가 정하고, README에 근거를 적어 주세요.
 
+---
+
 ### 2) 기능 요구사항(필수)
 아래 기능을 구현해야 합니다.
 - 주문 생성
@@ -33,6 +35,8 @@
 - 결제 처리 비동기화(RDBMS 기반 처리, 배치/스케줄러 방식 권장)
 
 추가 기능은 자유입니다. 다만 필수 요구사항을 깨지 않도록 주의해 주세요.
+
+---
 
 ### 3) 기술적 요구사항
 - Framework: Spring Boot 3.x
@@ -46,6 +50,8 @@
 - 비동기 처리는 RDBMS와 배치 또는 스케줄러 기반으로 구현해 주세요.
 - API 문서화는 필수입니다(Swagger/OpenAPI 권장).
 
+---
+
 ### 4) 도메인 가이드(강제 아님)
 아래는 설계를 돕기 위한 가이드입니다. 그대로 따라도 되고, 다른 모델을 사용해도 됩니다.
 - Order(주문)
@@ -57,6 +63,8 @@
   - 처리 결과(성공/실패/오류 등)를 저장할 수 있어야 한다.
 
 상태 값과 전이 규칙은 자유롭게 정하되, 논리적으로 일관되어야 합니다.
+
+---
 
 ### 5) 비기능 요구사항(중요)
 
@@ -81,6 +89,8 @@
 - 메시지 브로커 없이 RDBMS에 결제 처리 대상 데이터를 저장하고, 배치/스케줄러가 처리하는 방식으로 구현해 주세요.
 - 처리 주기, 처리 단위, 중복 처리 방지 전략은 설계자가 결정하고 근거를 문서화해 주세요.
 
+---
+
 ### 6) 필수 구현 API 목록
 요구사항은 최소 범위만 제공합니다. 상세 스펙은 설계자가 보완해도 됩니다.
 
@@ -89,14 +99,82 @@
 - 주문을 생성합니다.
 - 응답에는 주문 식별자와 상태 정보가 포함되어야 합니다.
 
+Request 예시
+```json
+
+{
+  "customerId": "cust_1001",
+  "amount": 12900
+}
+```
+
+Response 201 예시
+
+```json
+{
+  "data": {
+    "orderId": "ord_20260203_000001",
+    "customerId": "cust_1001",
+    "amount": 12900,
+    "status": "CREATED",
+    "createdAt": "2026-02-03T16:10:25.801Z"
+  }
+}
+```
+
 #### 6-2) 주문 단건 조회
 - GET /api/orders/{orderId}
 - 주문의 현재 상태를 확인할 수 있어야 합니다.
+
+Response 200 예시
+
+```json
+{
+  "data": {
+    "orderId": "ord_20260203_000001",
+    "customerId": "cust_1001",
+    "amount": 12900,
+    "status": "PAYMENT_PROCESSING",
+    "lastPaymentAttemptId": "pay_20260203_000010",
+    "createdAt": "2026-02-03T16:10:25.801Z",
+    "updatedAt": "2026-02-03T16:11:02.104Z"
+  }
+}
+```
 
 #### 6-3) 주문 목록 조회
 - GET /api/orders?page=0&size=20&sort=createdAt,desc
 - 페이징 가능한 결과를 반환해야 합니다.
 - 정렬 기준은 하나 이상 지원해야 합니다(예: createdAt).
+
+Response 200 예시
+
+```json
+{
+  "data": {
+    "page": 0,
+    "size": 20,
+    "totalPages": 3,
+    "totalCount": 57,
+    "items": [
+      {
+        "orderId": "ord_20260203_000057",
+        "customerId": "cust_1001",
+        "amount": 8900,
+        "status": "PAID",
+        "createdAt": "2026-02-03T16:40:12.201Z"
+      },
+      {
+        "orderId": "ord_20260203_000056",
+        "customerId": "cust_1001",
+        "amount": 12900,
+        "status": "CREATED",
+        "createdAt": "2026-02-03T16:39:55.100Z"
+      }
+    ]
+  }
+}
+```
 
 #### 6-4) 결제 승인 요청
 - POST /api/orders/{orderId}/payments/approve
@@ -105,9 +183,131 @@
 - 요청 즉시 결제 성공 여부가 확정되지 않아도 됩니다.
 - 결제 승인 요청이 수락되면, 결제 시도 식별자를 응답으로 내려 주세요.
 
+Headers 예시
+- Idempotency-Key: idem_8f2a9d6b-1c2d-4a9c-9a1c-123456789abc
+
+Request 예시
+
+```json
+{
+  "amount": 12900
+}
+```
+
+Response 202 예시
+
+```json
+{
+  "data": {
+    "paymentAttemptId": "pay_20260203_000010",
+    "orderId": "ord_20260203_000001",
+    "paymentStatus": "REQUESTED",
+    "orderStatus": "PAYMENT_PROCESSING",
+    "requestedAt": "2026-02-03T16:11:02.104Z"
+  }
+}
+```
+
+멱등 재요청 Response 202 예시(동일 응답 반환 예시)
+
+```json
+{
+  "data": {
+    "paymentAttemptId": "pay_20260203_000010",
+    "orderId": "ord_20260203_000001",
+    "paymentStatus": "REQUESTED",
+    "orderStatus": "PAYMENT_PROCESSING",
+    "requestedAt": "2026-02-03T16:11:02.104Z"
+  }
+}
+```
+
 #### 6-5) 결제 시도 단건 조회
 - GET /api/payments/{paymentAttemptId}
 - 결제 시도의 상태(처리 전/처리 중/성공/실패)를 조회할 수 있어야 합니다.
+
+Response 200 예시(승인 성공)
+
+```json
+{
+  "data": {
+    "paymentAttemptId": "pay_20260203_000010",
+    "orderId": "ord_20260203_000001",
+    "amount": 12900,
+    "status": "APPROVED",
+    "failureReason": null,
+    "requestedAt": "2026-02-03T16:11:02.104Z",
+    "processedAt": "2026-02-03T16:11:12.900Z"
+  }
+}
+```
+
+Response 200 예시(승인 실패)
+
+```json
+{
+  "data": {
+    "paymentAttemptId": "pay_20260203_000011",
+    "orderId": "ord_20260203_000002",
+    "amount": 12901,
+    "status": "DECLINED",
+    "failureReason": "INVALID_AMOUNT_UNIT",
+    "requestedAt": "2026-02-03T16:12:01.000Z",
+    "processedAt": "2026-02-03T16:12:11.500Z"
+  }
+}
+```
+
+Response 200 예시(시스템 오류)
+
+```json
+{
+  "data": {
+    "paymentAttemptId": "pay_20260203_000012",
+    "orderId": "ord_20260203_000003",
+    "amount": 12900,
+    "status": "ERROR",
+    "failureReason": "PROCESSING_EXCEPTION",
+    "requestedAt": "2026-02-03T16:13:01.000Z",
+    "processedAt": "2026-02-03T16:13:11.500Z"
+  }
+}
+```
+
+에러 Response 예시(레이트 리밋 초과)
+
+```json
+{
+  "error": {
+    "code": "TOO_MANY_REQUESTS",
+    "message": "결제 승인 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
+  }
+}
+```
+
+에러 Response 예시(상태 전이 불가)
+
+```
+{
+  "error": {
+    "code": "INVALID_STATE",
+    "message": "현재 주문 상태에서는 결제 승인 요청을 할 수 없습니다."
+  }
+}
+```
+
+에러 Response 예시(멱등키 충돌)
+
+```
+{
+  "error": {
+    "code": "IDEMPOTENCY_CONFLICT",
+    "message": "동일한 Idempotency-Key로 다른 요청이 감지되었습니다."
+  }
+}
+```
+
+---
 
 ### 7) 선택 구현(가산점)
 아래 기능은 선택입니다. 구현 여부와 정책은 설계자가 결정하고, README에 근거를 적어 주세요.
@@ -128,6 +328,8 @@
 - 서킷 브레이커 적용(외부 의존성 또는 가짜 PG 호출을 외부 서비스로 분리한 경우에 한해 권장)
 - 슬로우 스타터 적용(애플리케이션 기동 직후 트래픽 급증 완화, 워밍업 전략)
 
+---
+
 ### 8) 제출 방식
 - GitHub에 private 레포지토리를 생성합니다.
 - 브랜치 전략은 자유지만, PR 기반 개발을 권장합니다.
@@ -137,11 +339,15 @@
   - 선택 기술 스택과 이유(DB, ORM 등)
   - 간단한 시나리오 기반 테스트 방법(수동 테스트 절차도 가능)
 
+---
+
 ### 9) (참고) 평가 기준
 - 기능 요구사항: 40%
 - 비기능 요구사항: 40%
 - 코드 품질/테스트: 5%
 - 문서화: 15%
+
+---
 
 ## 참고
 - 위 요구사항은 최소 조건만 제공합니다.
